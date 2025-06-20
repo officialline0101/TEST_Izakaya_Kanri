@@ -2,46 +2,291 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>管理ページ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>管理ページ（メニュー一覧＋画像アップロード）</title>
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    .card { border: 1px solid #aaa; padding: 10px; margin-bottom: 10px; }
-    button { padding: 5px 10px; }
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 1em;
+      background-color: #f4f4f4;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 1em;
+      font-size: 1.5em;
+    }
+
+    #loading {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100px;
+    }
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 4px solid #ccc;
+      border-top-color: #4CAF50;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #table-wrapper {
+      overflow-x: auto;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      margin-bottom: 1em;
+    }
+
+    table {
+      width: 100%;
+      min-width: 800px;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #f0f0f0;
+      z-index: 1;
+    }
+
+    th, td {
+      padding: 10px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+      text-align: left;
+    }
+
+    td[contenteditable="true"] {
+      background-color: #fffbe6;
+    }
+
+    tr.edited td {
+      background-color: #e0f7fa !important;
+    }
+
+    .img-preview {
+      width: 60px;
+      height: auto;
+    }
+
+    .invalid {
+      background-color: #ffe5e5;
+      border-color: red;
+    }
+
+    .actions {
+      text-align: center;
+    }
+
+    button {
+      padding: 6px 12px;
+      margin: 0 4px;
+      cursor: pointer;
+    }
+
+    #controls {
+      text-align: center;
+      margin: 1em 0;
+    }
+
+    #save-btn {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+
+    #save-status {
+      text-align: center;
+      margin-top: 10px;
+      font-size: 14px;
+      color: #4CAF50;
+      opacity: 0;
+      transition: opacity 0.5s;
+    }
+
+    #save-status.visible {
+      opacity: 1;
+    }
+
+    input[type="file"] {
+      width: 100px;
+    }
+
+    @media (max-width: 600px) {
+      th, td {
+        font-size: 12px;
+        padding: 6px;
+      }
+
+      .img-preview {
+        width: 40px;
+      }
+
+      input[type="file"] {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
-  <h2>📋 注文一覧</h2>
-  <div id="orders"></div>
+  <h1>🛠 管理ページ（メニュー一覧＋画像アップロード）</h1>
+  <div id="loading"><div class="spinner"></div></div>
+
+  <div id="table-container" style="display:none;">
+    <div id="table-wrapper">
+      <table id="menu-table">
+        <thead>
+          <tr>
+            <th>名前</th>
+            <th>説明</th>
+            <th>価格</th>
+            <th>カテゴリ</th>
+            <th>画像URL</th>
+            <th>プレビュー</th>
+            <th>削除</th>
+            <th>アップロード</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div id="controls">
+      <button onclick="addRow()">＋ 行を追加</button>
+      <button id="save-btn">💾 保存する</button>
+      <div id="save-status">✅ 保存が完了しました！</div>
+    </div>
+  </div>
+
   <script>
-    const api = 'https://script.google.com/macros/s/AKfycbwEBJqUOT8Ah0AFdFQS_cidq3dfjfYzvRsxEzbV7gFKm0jmjxTrgz8h4Ae5uc8gH_0/exec';
+    const apiUrl = 'https://script.google.com/macros/s/AKfycbzRPz-_r9c7YPfSgDQa8AWFkGyf_Dxiv2gfy6YgtlELvHFwDY0FB5BuBfFGrVvdzFw/exec';
 
-    async function fetchOrders() {
-      const res = await fetch(api + '?action=getOrders');
-      const orders = await res.json();
-      const container = document.getElementById('orders');
-      container.innerHTML = '';
-
-      orders.forEach(order => {
-        const div = document.createElement('div');
-        div.className = 'card';
-        div.innerHTML = `
-          <strong>${order.time}</strong><br>
-          商品: ${order.name} × ${order.quantity}<br>
-          合計: ¥${order.total}<br>
-          ステータス: ${order.status}<br>
-          <button onclick="updateStatus(${order.id})">次のステータスへ</button>
-        `;
-        container.appendChild(div);
+    function createRow(item = {}) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td contenteditable="true">${item['名前'] || ''}</td>
+        <td contenteditable="true">${item['説明'] || ''}</td>
+        <td contenteditable="true">${item['価格'] || ''}</td>
+        <td contenteditable="true">${item['カテゴリ'] || ''}</td>
+        <td contenteditable="true">${item['画像URL'] || ''}</td>
+        <td class="actions"><img src="${item['画像URL'] || ''}" class="img-preview" onerror="this.src=''" /></td>
+        <td class="actions"><button onclick="removeRow(this)">🗑</button></td>
+        <td class="actions"><input type="file" accept="image/*" onchange="uploadImage(this)" /></td>
+      `;
+      tr.querySelectorAll("td[contenteditable]").forEach(cell => {
+        cell.addEventListener("input", () => {
+          tr.classList.add("edited");
+          const url = tr.cells[4].innerText.trim();
+          tr.querySelector("img").src = url;
+          const priceCell = tr.cells[2];
+          priceCell.classList.toggle("invalid", isNaN(priceCell.innerText.trim()));
+        });
       });
+      return tr;
     }
 
-    async function updateStatus(id) {
-      await fetch(api + '?action=updateStatus&id=' + id);
-      fetchOrders();
+    function addRow() {
+      const tbody = document.querySelector("#menu-table tbody");
+      tbody.appendChild(createRow());
     }
 
-    fetchOrders();
+    function removeRow(button) {
+      const tr = button.closest("tr");
+      tr.remove();
+    }
+
+    function uploadImage(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append("image", file);
+
+      fetch(apiUrl, {
+        method: "POST",
+        body: formData
+      })
+        .then(res => res.json())
+        .then(data => {
+          const tr = input.closest("tr");
+          tr.cells[4].innerText = data.url;
+          tr.querySelector("img").src = data.url;
+          tr.classList.add("edited");
+        })
+        .catch(err => {
+          console.error(err);
+          alert("画像のアップロードに失敗しました。");
+        });
+    }
+
+    document.getElementById("save-btn").addEventListener("click", () => {
+      const rows = document.querySelectorAll("#menu-table tbody tr");
+      const updatedData = [];
+
+      for (const row of rows) {
+        const cells = row.querySelectorAll("td");
+        const name = cells[0].innerText.trim();
+        const desc = cells[1].innerText.trim();
+        const price = cells[2].innerText.trim();
+        const category = cells[3].innerText.trim();
+        const url = cells[4].innerText.trim();
+
+        if (!name || isNaN(price)) {
+          alert("名前と価格は正しく入力してください");
+          return;
+        }
+
+        updatedData.push({
+          名前: name,
+          説明: desc,
+          価格: price,
+          カテゴリ: category,
+          画像URL: url
+        });
+      }
+
+      document.getElementById("save-status").textContent = "💾 保存中...";
+      document.getElementById("save-status").classList.add("visible");
+
+      fetch(apiUrl, {
+        method: 'POST',
+        body: JSON.stringify(updatedData),
+        headers: { 'Content-Type': 'application/json' }
+      }).then(() => {
+        document.getElementById("save-status").textContent = "✅ 保存が完了しました！";
+        setTimeout(() => {
+          document.getElementById("save-status").classList.remove("visible");
+        }, 3000);
+      }).catch(() => {
+        document.getElementById("save-status").textContent = "❌ 保存に失敗しました";
+      });
+    });
+
+    fetch(apiUrl)
+      .then(res => res.json())
+      .then(data => {
+        const tbody = document.querySelector("#menu-table tbody");
+        data.forEach(item => {
+          tbody.appendChild(createRow(item));
+        });
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("table-container").style.display = "block";
+      })
+      .catch(() => {
+        document.getElementById("loading").innerHTML = "<p>読み込みに失敗しました。</p>";
+      });
   </script>
 </body>
 </html>
